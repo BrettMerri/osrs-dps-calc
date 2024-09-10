@@ -78,6 +78,7 @@ export interface EquipmentStats {
 }
 
 export interface Player extends EquipmentStats {
+  id: string;
   name: string;
   style: PlayerCombatStyle;
   /**

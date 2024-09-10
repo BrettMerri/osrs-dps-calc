@@ -24,6 +24,7 @@ import { EquipmentCategory } from '@/enums/EquipmentCategory';
 import { PlayerCombatStyle } from '@/types/PlayerCombatStyle';
 import { PartialDeep } from 'type-fest';
 import merge from 'lodash.mergewith';
+import shortUUID from 'short-uuid';
 
 /**
  * Can be reused in a number of locations where we partially support a feature
@@ -117,6 +118,38 @@ export const calculateCombatLevel = (s: PlayerSkills) => {
 
   // Return the combat level
   return Math.floor(cbLevelDouble);
+};
+
+export const migrateOldImportedData = (oldData: ImportableData): ImportableData => {
+  const data = structuredClone(oldData);
+
+  if (data.serializationVersion <= 1) {
+    data.monster.inputs.phase = data.monster.inputs.tormentedDemonPhase;
+  }
+
+  /**
+   * Add ids to loadouts, add selectedLoadoutId
+   */
+  if (data.serializationVersion <= 2) {
+    data.loadouts = data.loadouts.map((loadout) => {
+      if (loadout.id) {
+        return loadout;
+      }
+
+      const id = shortUUID.generate();
+
+      return {
+        ...loadout,
+        id,
+      };
+    });
+
+    if (!data.selectedLoadoutId) {
+      data.selectedLoadoutId = data.loadouts[data.selectedLoadout || 0].id!;
+    }
+  }
+
+  return data;
 };
 
 export const getWikiImage = (filename: string) => `https://oldschool.runescape.wiki/images/${filename.replaceAll(' ', '_')}?11111`;

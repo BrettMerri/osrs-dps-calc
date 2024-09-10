@@ -15,7 +15,7 @@ import { Monster } from '@/types/Monster';
 import { MonsterAttribute } from '@/enums/MonsterAttribute';
 import { toast } from 'react-toastify';
 import {
-  fetchPlayerSkills, fetchShortlinkData, getCombatStylesForCategory, PotionMap,
+  fetchPlayerSkills, fetchShortlinkData, getCombatStylesForCategory, migrateOldImportedData, PotionMap,
 } from '@/utils';
 import { ComputeBasicRequest, ComputeReverseRequest, WorkerRequestType } from '@/worker/CalcWorkerTypes';
 import { getMonsters, INITIAL_MONSTER_INPUTS } from '@/lib/Monsters';
@@ -23,6 +23,8 @@ import { availableEquipment, calculateEquipmentBonusesFromGear } from '@/lib/Equ
 import { CalcWorker } from '@/worker/CalcWorker';
 import { spellByName } from '@/types/Spell';
 import { NUMBER_OF_LOADOUTS } from '@/lib/constants';
+import { arrayMove } from '@dnd-kit/sortable';
+import shortUUID from 'short-uuid';
 import { EquipmentCategory } from './enums/EquipmentCategory';
 import {
   ARM_PRAYERS, BRAIN_PRAYERS, DEFENSIVE_PRAYERS, OFFENSIVE_PRAYERS, OVERHEAD_PRAYERS, Prayer,
@@ -50,6 +52,7 @@ const generateInitialEquipment = () => {
 };
 
 export const generateEmptyPlayer = (name?: string): Player => ({
+  id: shortUUID.generate(),
   name: name ?? 'Loadout 1',
   style: getCombatStylesForCategory(EquipmentCategory.NONE)[0],
   skills: {
@@ -185,6 +188,8 @@ class GlobalState implements State {
     generateEmptyPlayer(),
   ];
 
+  selectedLoadoutId = this.loadouts[0].id;
+
   selectedLoadout = 0;
 
   ui: UI = {
@@ -302,6 +307,7 @@ class GlobalState implements State {
       loadouts: toJS(this.loadouts),
       monster: toJS(this.monster),
       selectedLoadout: this.selectedLoadout,
+      selectedLoadoutId: this.selectedLoadoutId,
     };
   }
 
@@ -438,14 +444,9 @@ class GlobalState implements State {
   }
 
   updateImportedData(data: ImportableData) {
-    /* eslint-disable no-fallthrough */
-    switch (data.serializationVersion) {
-      case 1:
-        data.monster.inputs.phase = data.monster.inputs.tormentedDemonPhase;
-
-      default:
+    if (data.serializationVersion < IMPORT_VERSION) {
+      data = migrateOldImportedData(data);
     }
-    /* eslint-enable no-fallthrough */
 
     if (data.monster) {
       let newMonster: PartialDeep<Monster> = {};
@@ -495,7 +496,7 @@ class GlobalState implements State {
     });
     this.recalculateEquipmentBonusesFromGearAll();
 
-    this.selectedLoadout = data.selectedLoadout || 0;
+    this.setSelectedLoadout(data.selectedLoadout || 0);
   }
 
   loadPreferences() {
@@ -702,6 +703,12 @@ class GlobalState implements State {
 
   setSelectedLoadout(ix: number) {
     this.selectedLoadout = ix;
+    this.selectedLoadoutId = this.loadouts[this.selectedLoadout].id;
+  }
+
+  setSelectedLoadoutId(id: string) {
+    this.selectedLoadoutId = id;
+    this.selectedLoadout = this.loadouts.findIndex((loadout) => loadout.id === id) || 0;
   }
 
   deleteLoadout(ix: number) {
@@ -731,6 +738,13 @@ class GlobalState implements State {
     }
   }
 
+  moveLoadout(activeId: string, overId: string) {
+    const oldIndex = this.loadouts.findIndex((loadout) => loadout.id === activeId);
+    const newIndex = this.loadouts.findIndex((loadout) => loadout.id === overId);
+
+    this.loadouts = arrayMove(this.loadouts, oldIndex, newIndex);
+  }
+
   get canCreateLoadout() {
     return this.loadouts.length < NUMBER_OF_LOADOUTS;
   }
@@ -740,10 +754,11 @@ class GlobalState implements State {
     if (!this.canCreateLoadout) return;
 
     const newLoadout = (cloneIndex !== undefined) ? toJS(this.loadouts[cloneIndex]) : generateEmptyPlayer();
+    newLoadout.id = shortUUID.generate();
     newLoadout.name = `Loadout ${this.loadouts.length + 1}`;
 
     this.loadouts.push(newLoadout);
-    if (selected) this.selectedLoadout = (this.loadouts.length - 1);
+    if (selected) this.setSelectedLoadout(this.loadouts.length - 1);
   }
 
   async doWorkerRecompute() {
